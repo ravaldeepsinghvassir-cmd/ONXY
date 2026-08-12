@@ -19,8 +19,8 @@ else:
     _WIN_HIDE: dict = {}
 
 from PyQt6.QtCore import (
-    QEasingCurve, QMimeData, QObject, QPointF, QRectF, QSize, Qt,
-    QTimer, QUrl, pyqtSignal,
+    QEasingCurve, QMimeData, QObject, QPointF, QPropertyAnimation, QRectF,
+    QSize, Qt, QTimer, QUrl, pyqtProperty, pyqtSignal,
 )
 from PyQt6.QtGui import (
     QBrush, QColor, QConicalGradient, QDragEnterEvent, QDropEvent, QFont,
@@ -28,9 +28,10 @@ from PyQt6.QtGui import (
     QPen, QPixmap, QRadialGradient, QShortcut,
 )
 from PyQt6.QtWidgets import (
-    QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit,
-    QMainWindow, QPushButton, QScrollArea, QSizePolicy, QSplitter,
-    QStackedWidget, QTextEdit, QVBoxLayout, QWidget, QProgressBar,
+    QApplication, QFileDialog, QFrame, QGraphicsDropShadowEffect,
+    QGraphicsOpacityEffect, QHBoxLayout, QLabel, QLineEdit, QMainWindow,
+    QPushButton, QScrollArea, QSizePolicy, QSplitter, QStackedWidget,
+    QTextEdit, QVBoxLayout, QWidget, QProgressBar,
 )
 
 def _base_dir() -> Path:
@@ -171,6 +172,41 @@ def retheme_all_widgets(old: dict[str, str], new: dict[str, str]) -> None:
 
 def qcol(h: str, a: int = 255) -> QColor:
     c = QColor(h); c.setAlpha(a); return c
+
+
+def _animate_overlay_in(widget: QWidget) -> None:
+    """
+    Fade + subtle scale-in entrance for overlay/panel widgets. Keeps a
+    reference to the animation on the widget itself so it isn't garbage
+    collected mid-flight. Call AFTER widget.setGeometry(...) and before/at
+    widget.show().
+    """
+    fx = QGraphicsOpacityEffect(widget)
+    widget.setGraphicsEffect(fx)
+    fx.setOpacity(0.0)
+
+    final_rect = widget.geometry()
+    start_rect = QRectF(final_rect).adjusted(
+        final_rect.width() * 0.03, final_rect.height() * 0.03,
+        -final_rect.width() * 0.03, -final_rect.height() * 0.03,
+    ).toRect()
+
+    op_anim = QPropertyAnimation(fx, b"opacity", widget)
+    op_anim.setDuration(220)
+    op_anim.setStartValue(0.0)
+    op_anim.setEndValue(1.0)
+    op_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+    geo_anim = QPropertyAnimation(widget, b"geometry", widget)
+    geo_anim.setDuration(240)
+    geo_anim.setStartValue(start_rect)
+    geo_anim.setEndValue(final_rect)
+    geo_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+    widget.setGeometry(start_rect)
+    widget._entrance_anims = (op_anim, geo_anim)   # keep alive
+    op_anim.start()
+    geo_anim.start()
 
 
 # -- Windows GPU via NVML DLL (no subprocess, no console window) --
@@ -350,6 +386,7 @@ class HudCanvas(QWidget):
         self.muted    = False
         self.speaking = False
         self.state    = "INITIALISING"
+        self._prev_state = None
         self._assistant_name = assistant_name
 
         self._tick       = 0
@@ -367,6 +404,21 @@ class HudCanvas(QWidget):
         self._particles: list[list[float]] = []
         self._face_px: QPixmap | None = None
         self._load_face(face_path)
+
+        # Orbiting satellites — small dots that circle the ring at
+        # independent speeds/radii for a layered, alive HUD.
+        self._satellites = [
+            {"ang": 0.0,   "spd": 1.6,  "r_frac": 0.585, "size": 3.2},
+            {"ang": 140.0, "spd": -1.1, "r_frac": 0.585, "size": 2.4},
+            {"ang": 260.0, "spd": 0.7,  "r_frac": 0.62,  "size": 2.0},
+        ]
+
+        # Corner telemetry readouts — cosmetic ticking data for sci-fi flavour
+        self._telemetry = ["0000", "0000", "0000", "0000"]
+        self._telemetry_tick = 0
+
+        # State-change glitch flicker
+        self._glitch_frames = 0
 
         self._tmr = QTimer(self)
         self._tmr.timeout.connect(self._step)
@@ -440,16 +492,47 @@ class HudCanvas(QWidget):
         if self._blink_tick >= 38:
             self._blink = not self._blink
             self._blink_tick = 0
+
+        # orbiting satellites
+        for sat in self._satellites:
+            mult = 2.2 if self.speaking else 1.0
+            sat["ang"] = (sat["ang"] + sat["spd"] * mult) % 360
+
+        # idle breathing — a slow, organic sine-driven glow so the HUD
+        # never looks fully static even with no speech/mute activity
+        if not self.speaking and not self.muted:
+            self._halo += 5.0 * math.sin(self._tick * 0.025) * 0.06
+
+        # telemetry readouts — re-roll digits every ~10 frames for a
+        # ticking data-stream feel (cosmetic only)
+        self._telemetry_tick += 1
+        if self._telemetry_tick >= 10:
+            self._telemetry_tick = 0
+            self._telemetry = [f"{random.randint(0, 0xFFFF):04X}" for _ in range(4)]
+
+        # detect state changes -> short glitch flicker
+        if self.state != self._prev_state:
+            self._prev_state = self.state
+            self._glitch_frames = 6
+        elif self._glitch_frames > 0:
+            self._glitch_frames -= 1
+
         self.update()
 
     def paintEvent(self, _):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.fillRect(self.rect(), qcol(C.BG))
 
         W, H = self.width(), self.height()
         cx, cy = W / 2, H / 2
         fw = min(W, H)
+
+        # radial-gradient background — subtle depth instead of flat fill
+        bg_grad = QRadialGradient(cx, cy, fw * 0.75)
+        bg_grad.setColorAt(0.0, qcol(C.PANEL2))
+        bg_grad.setColorAt(0.55, qcol(C.BG))
+        bg_grad.setColorAt(1.0, qcol("#000000"))
+        p.fillRect(self.rect(), QBrush(bg_grad))
 
         # grid dots
         p.setPen(QPen(qcol(C.PRI_GHO), 1))
@@ -571,7 +654,7 @@ class HudCanvas(QWidget):
             sym = "◈" if self._blink else "◇"
             txt, col = f"{sym}  THINKING",   qcol(C.ACC2)
         elif self.state == "PROCESSING":
-            sym = "▹" if self._blink else "▸"
+            sym = "▷" if self._blink else "▶"
             txt, col = f"{sym}  PROCESSING", qcol(C.ACC2)
         elif self.state == "LISTENING":
             sym = "●" if self._blink else "○"
@@ -599,21 +682,89 @@ class HudCanvas(QWidget):
                 cl  = qcol(C.BORDER_B)
             p.fillRect(QRectF(wx0 + i * bw, wy + 20 - hgt, bw - 1, hgt), cl)
 
+        # orbiting satellites — small glowing dots circling the outer ring,
+        # each trailing a fading "ghost" trail for a sense of motion
+        for sat in self._satellites:
+            trail_col = C.MUTED_C if self.muted else C.PRI
+            for step in range(4, 0, -1):
+                trail_ang = math.radians(sat["ang"] - sat["spd"] * step * 2.4)
+                tr  = fw * sat["r_frac"]
+                tx  = cx + tr * math.cos(trail_ang)
+                ty  = cy - tr * math.sin(trail_ang)
+                ta  = int(50 * (1.0 - step / 5))
+                tsz = sat["size"] * (1.0 - step / 6)
+                p.setPen(Qt.PenStyle.NoPen)
+                p.setBrush(QBrush(qcol(trail_col, ta)))
+                p.drawEllipse(QPointF(tx, ty), tsz, tsz)
+
+            rad = math.radians(sat["ang"])
+            sr  = fw * sat["r_frac"]
+            sx  = cx + sr * math.cos(rad)
+            sy  = cy - sr * math.sin(rad)
+            glow_col = qcol(trail_col, 220)
+            for gi in range(3, 0, -1):
+                gr = sat["size"] * gi
+                ga = max(0, int(90 / gi))
+                p.setPen(Qt.PenStyle.NoPen)
+                p.setBrush(QBrush(qcol(trail_col, ga)))
+                p.drawEllipse(QPointF(sx, sy), gr, gr)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QBrush(glow_col))
+            p.drawEllipse(QPointF(sx, sy), sat["size"], sat["size"])
+
+        # corner telemetry readouts — cosmetic ticking data-stream text
+        p.setFont(QFont("Courier New", 6))
+        p.setPen(QPen(qcol(C.PRI_DIM, 150), 1))
+        tele_pad = 10
+        p.drawText(QRectF(tele_pad, tele_pad, 90, 12),
+                   Qt.AlignmentFlag.AlignLeft, f"SIG {self._telemetry[0]}")
+        p.drawText(QRectF(W - tele_pad - 90, tele_pad, 90, 12),
+                   Qt.AlignmentFlag.AlignRight, f"COR {self._telemetry[1]}")
+        p.drawText(QRectF(tele_pad, H - tele_pad - 12, 90, 12),
+                   Qt.AlignmentFlag.AlignLeft, f"FRQ {self._telemetry[2]}")
+        p.drawText(QRectF(W - tele_pad - 90, H - tele_pad - 12, 90, 12),
+                   Qt.AlignmentFlag.AlignRight, f"SYN {self._telemetry[3]}")
+
+        # state-change glitch flicker — brief scanline flash on transition
+        if self._glitch_frames > 0:
+            flicker_a = int(70 * (self._glitch_frames / 6))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QBrush(qcol(C.PRI, flicker_a)))
+            for _ in range(3):
+                gy = random.randint(0, H)
+                gh = random.randint(2, 6)
+                p.drawRect(QRectF(0, gy, W, gh))
+
 class MetricBar(QWidget):
 
     def __init__(self, label: str, color: str = C.PRI, parent=None):
         super().__init__(parent)
         self._label = label
         self._color = color
-        self._value = 0.0       # 0-100
+        self._value = 0.0       # 0-100 (animated/displayed)
         self._text  = "--"
         self.setFixedHeight(38)
         self.setMinimumWidth(80)
+        self._anim = QPropertyAnimation(self, b"animValue", self)
+        self._anim.setDuration(420)
+        self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+    def _get_anim_value(self) -> float:
+        return self._value
+
+    def _set_anim_value(self, v: float) -> None:
+        self._value = v
+        self.update()
+
+    animValue = pyqtProperty(float, _get_anim_value, _set_anim_value)
 
     def set_value(self, pct: float, text: str):
-        self._value = max(0.0, min(100.0, pct))
-        self._text  = text
-        self.update()
+        target = max(0.0, min(100.0, pct))
+        self._text = text
+        self._anim.stop()
+        self._anim.setStartValue(self._value)
+        self._anim.setEndValue(target)
+        self._anim.start()
 
     def paintEvent(self, _):
         p = QPainter(self)
@@ -946,13 +1097,13 @@ class _DropCanvas(QWidget):
         p.setFont(QFont("Courier New", 6))
         p.setPen(QPen(qcol("#1e5c6a"), 1))
         par = str(path.parent)
-        if len(par) > 42: par = "â€¦" + par[-41:]
+        if len(par) > 42: par = "…" + par[-41:]
         p.drawText(QRectF(tx, H * 0.18 + 34, tw, 12),
                    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, par)
 
         p.setFont(QFont("Courier New", 9, QFont.Weight.Bold))
         p.setPen(QPen(qcol(C.RED, 180), 1))
-        p.drawText(QRectF(W - 34, 0, 28, H), Qt.AlignmentFlag.AlignCenter, "âœ•")
+        p.drawText(QRectF(W - 34, 0, 28, H), Qt.AlignmentFlag.AlignCenter, "✕")
 
     def mousePressEvent(self, e):
         z = self._z
@@ -984,12 +1135,12 @@ class _CameraPreview(QWidget):
         lay.setSpacing(4)
 
         hdr = QHBoxLayout()
-        title = QLabel("â—ˆ  VISUAL INPUT")
+        title = QLabel("◈  VISUAL INPUT")
         title.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
         title.setStyleSheet(f"color: {C.PRI}; background: transparent;")
         hdr.addWidget(title)
         hdr.addStretch()
-        close_btn = QPushButton("âœ•")
+        close_btn = QPushButton("✕")
         close_btn.setFixedSize(16, 16)
         close_btn.setFont(QFont("Courier New", 8))
         close_btn.setStyleSheet(
@@ -1073,7 +1224,7 @@ class SetupOverlay(QWidget):
                                align=Qt.AlignmentFlag.AlignLeft))
         self._key_input = QLineEdit()
         self._key_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self._key_input.setPlaceholderText("AIzaâ€¦")
+        self._key_input.setPlaceholderText("AIza…")
         self._key_input.setFont(QFont("Courier New", 10))
         self._key_input.setFixedHeight(32)
         self._key_input.setStyleSheet(f"""
@@ -1116,10 +1267,6 @@ class SetupOverlay(QWidget):
         layout.addLayout(os_row)
         self._sel(detected)
         layout.addSpacing(12)
-
-        init_btn = QPushButton("▸  INITIALISE SYSTEMS")
-        init_btn.setFont(QFont("Courier New", 10, QFont.Weight.Bold))
-        init_btn.setFixedHeight(36)
 
         init_btn = QPushButton("▸  INITIALISE SYSTEMS")
         init_btn.setFont(QFont("Courier New", 10, QFont.Weight.Bold))
@@ -1167,6 +1314,134 @@ class SetupOverlay(QWidget):
             )
             return
         self.done.emit(key, self._sel_os)
+
+
+class BootSequenceOverlay(QWidget):
+    """
+    One-shot boot animation played when the app starts — radar sweep +
+    typewriter status lines, then fades out to reveal the live HUD
+    underneath. Fully self-contained: stops its own timers and calls
+    deleteLater() when done, no external wiring needed beyond show().
+    """
+
+    finished = pyqtSignal()
+
+    _LINES = [
+        "INITIALISING NEURAL CORE...",
+        "CALIBRATING SENSOR ARRAY...",
+        "LINKING VOICE MATRIX...",
+        "SYSTEMS ONLINE.",
+    ]
+
+    def __init__(self, assistant_name: str, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setStyleSheet(f"background: {C.BG};")
+        self._assistant_name = (assistant_name or "ONXY").upper()
+
+        self._sweep      = 0.0
+        self._ring       = 0.0
+        self._paint_ticks = 0
+        self._line_idx   = 0
+        self._char_idx   = 0
+        self._lines_done: list[str] = []
+        self._current    = ""
+        self._fade_anim: QPropertyAnimation | None = None
+
+        self._paint_tmr = QTimer(self)
+        self._paint_tmr.timeout.connect(self._tick_paint)
+        self._paint_tmr.start(16)
+
+        self._text_tmr = QTimer(self)
+        self._text_tmr.timeout.connect(self._tick_text)
+        self._text_tmr.start(26)
+
+    def _tick_paint(self):
+        self._paint_ticks += 1
+        self._sweep = (self._sweep + 4.0) % 360
+        self._ring  = min(1.0, self._ring + 0.014)
+        self.update()
+
+    def _tick_text(self):
+        if self._line_idx >= len(self._LINES):
+            self._text_tmr.stop()
+            QTimer.singleShot(500, self._begin_fade)
+            return
+        line = self._LINES[self._line_idx]
+        if self._char_idx < len(line):
+            self._char_idx += 1
+            self._current = line[:self._char_idx]
+        else:
+            self._lines_done.append(line)
+            self._line_idx += 1
+            self._char_idx  = 0
+            self._current   = ""
+
+    def _begin_fade(self):
+        fx = QGraphicsOpacityEffect(self)
+        self.setGraphicsEffect(fx)
+        anim = QPropertyAnimation(fx, b"opacity", self)
+        anim.setDuration(480)
+        anim.setStartValue(1.0)
+        anim.setEndValue(0.0)
+        anim.setEasingCurve(QEasingCurve.Type.InCubic)
+        anim.finished.connect(self._cleanup)
+        self._fade_anim = anim
+        anim.start()
+
+    def _cleanup(self):
+        self._paint_tmr.stop()
+        self.hide()
+        self.finished.emit()
+        self.deleteLater()
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        W, H = self.width(), self.height()
+        cx, cy = W / 2, H * 0.42
+        p.fillRect(self.rect(), qcol(C.BG))
+
+        r = 92 * self._ring
+        a = int(255 * self._ring)
+
+        # expanding outer ring
+        p.setPen(QPen(qcol(C.PRI, a), 2))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawEllipse(QPointF(cx, cy), r, r)
+
+        # radar sweep arc
+        p.setPen(QPen(qcol(C.PRI, min(255, a + 30)), 2))
+        rect = QRectF(cx - r, cy - r, r * 2, r * 2)
+        p.drawArc(rect, int(self._sweep * 16), int(50 * 16))
+
+        # tick marks around ring
+        p.setPen(QPen(qcol(C.PRI_DIM, min(200, a)), 1))
+        for deg in range(0, 360, 30):
+            rad = math.radians(deg)
+            p.drawLine(
+                QPointF(cx + (r + 6) * math.cos(rad), cy - (r + 6) * math.sin(rad)),
+                QPointF(cx + (r + 14) * math.cos(rad), cy - (r + 14) * math.sin(rad)),
+            )
+
+        # assistant name, center
+        p.setFont(QFont("Courier New", 22, QFont.Weight.Bold))
+        p.setPen(QPen(qcol(C.PRI, a), 1))
+        p.drawText(QRectF(0, cy - 16, W, 34), Qt.AlignmentFlag.AlignCenter,
+                   self._assistant_name)
+
+        # boot status lines (typewriter)
+        p.setFont(QFont("Courier New", 9))
+        y0 = cy + r + 36
+        for i, line in enumerate(self._lines_done):
+            p.setPen(QPen(qcol(C.GREEN, 210), 1))
+            p.drawText(QRectF(0, y0 + i * 18, W, 16),
+                       Qt.AlignmentFlag.AlignCenter, f"\u2713  {line}")
+        if self._current:
+            blink = "_" if (self._paint_ticks // 20) % 2 == 0 else " "
+            p.setPen(QPen(qcol(C.ACC2, 220), 1))
+            p.drawText(QRectF(0, y0 + len(self._lines_done) * 18, W, 16),
+                       Qt.AlignmentFlag.AlignCenter, self._current + blink)
 
 
 class HueWheel(QWidget):
@@ -1338,7 +1613,7 @@ class CustomizeOverlay(QWidget):
 
         self._initial_color = (ui_color or DEFAULT_UI_COLOR).strip().lower()
         self._sel_color     = self._initial_color
-        self.on_preview     = None   # callable(hex) _ canlÄ± Ã¶nizleme; MainWindow baÄŸlar
+        self.on_preview     = None   # callable(hex)
 
         self._wheel = HueWheel(self._sel_color)
         wheel_row = QHBoxLayout()
@@ -1389,7 +1664,7 @@ class CustomizeOverlay(QWidget):
 
     # ── Color flow ───────────────────────────────────────────────────────────────
     def _set_color(self, hx: str, update_wheel: bool = True, preview: bool = True):
-        """SeÃ§ili rengi gÃ¼nceller; hex kutusu + Ã§ark senkron kalÄ±r, tema canlÄ± Ã¶nizlenir."""
+        """Updates the selected color; hex box + wheel stay in sync, theme live-previews."""
         self._sel_color = hx.strip().lower()
         self._hex_input.blockSignals(True)
         self._hex_input.setText(self._sel_color)
@@ -1460,7 +1735,7 @@ class ClipboardPanel(QWidget):
         icon_lbl.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
         icon_lbl.setStyleSheet(f"color: {C.ACC2}; background: transparent;")
         hdr.addWidget(icon_lbl); hdr.addStretch()
-        x_btn = QPushButton("âœ•")
+        x_btn = QPushButton("✕")
         x_btn.setFixedSize(16, 16)
         x_btn.setFont(QFont("Courier New", 8))
         x_btn.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent; border: none;")
@@ -1555,7 +1830,7 @@ class RemoteKeyOverlay(QWidget):
             w.setWordWrap(True)
             return w
 
-        lay.addWidget(_lbl("â—ˆ  REMOTE ACCESS", 12, True))
+        lay.addWidget(_lbl("◈  REMOTE ACCESS", 12, True))
         sep = QFrame(); sep.setFrameShape(QFrame.Shape.HLine)
         sep.setStyleSheet(f"color: {C.BORDER}; margin: 1px 0;")
         lay.addWidget(sep)
@@ -1704,7 +1979,7 @@ class RemoteKeyOverlay(QWidget):
             padding: 6px 4px;
             letter-spacing: 4px;
         """)
-        self._qr_label.setText("âœ“")
+        self._qr_label.setText("✓")
         self._qr_label.setFont(QFont("Courier New", 54, QFont.Weight.Bold))
         self._qr_label.setStyleSheet(
             "color: #00ff88; background: #001a0d; border-radius: 10px;"
@@ -1749,11 +2024,11 @@ class RemoteKeyOverlay(QWidget):
 class MainWindow(QMainWindow):
     _log_sig        = pyqtSignal(str)
     _state_sig      = pyqtSignal(str)
-    _content_sig    = pyqtSignal(str, str)   # (title, text) ” thread-safe content display
+    _content_sig    = pyqtSignal(str, str)   # (title, text)
     _reconfig_sig   = pyqtSignal()           # trigger setup overlay from any thread
     _camera_sig     = pyqtSignal(bytes)      # show camera frame preview (small overlay)
     _cam_stream_sig = pyqtSignal(bool)       # True=start live stream, False=stop
-    _cam_frame_sig  = pyqtSignal(bytes)      # live camera frame â†’ HUD area
+    _cam_frame_sig  = pyqtSignal(bytes)      # live camera frame → HUD area
     _clipboard_sig  = pyqtSignal(str)        # clipboard text changed (thread-safe)
 
     def __init__(self, face_path: str):
@@ -1918,6 +2193,17 @@ class MainWindow(QMainWindow):
         sc_intr = QShortcut(QKeySequence("Escape"), self)
         sc_intr.activated.connect(self._do_interrupt)
 
+        # One-shot boot sequence — plays over the already-live HUD, then
+        # fades itself out and cleans up automatically.
+        self._boot_overlay = BootSequenceOverlay(self._assistant_name, self.centralWidget())
+        self._boot_overlay.setGeometry(self.centralWidget().rect())
+        self._boot_overlay.finished.connect(self._on_boot_finished)
+        self._boot_overlay.show()
+        self._boot_overlay.raise_()
+
+    def _on_boot_finished(self):
+        self._boot_overlay = None
+
     def _show_camera_frame(self, img_bytes: bytes):
         """Slot _ display camera preview overlay (main thread)."""
         self._cam_preview.show_frame(img_bytes)
@@ -1999,7 +2285,7 @@ class MainWindow(QMainWindow):
     @staticmethod
     def _build_ONXY_icon(out_path: Path) -> bool:
         """
-        Render a ONXY arc-reactor icon at 4Ã— resolution and downsample
+        Render a ONXY arc-reactor icon at 4x resolution and downsample
         for crisp results at all sizes. Saves a multi-res .ico to out_path.
         Returns True on success.
         """
@@ -2018,7 +2304,7 @@ class MainWindow(QMainWindow):
         WHITE  = (220, 240, 255)
 
         def _render(sz: int) -> PIL.Image.Image:
-            S  = sz * 4                     # draw at 4Ã— then downscale
+            S  = sz * 4                     # draw at 4x then downscale
             img = PIL.Image.new("RGBA", (S, S), (0, 0, 0, 0))
             d   = PIL.ImageDraw.Draw(img)
             cx = cy = S // 2
@@ -2093,7 +2379,7 @@ class MainWindow(QMainWindow):
             )
             return True
         except Exception as e:
-            print(f"[Shortcut] âš ï¸  Icon generation failed: {e}")
+            print(f"[Shortcut] Icon generation failed: {e}")
             return False
 
     @staticmethod
@@ -2152,10 +2438,10 @@ class MainWindow(QMainWindow):
         """
         Resolve the user's REAL desktop directory instead of assuming
         ~/Desktop, which breaks when:
-          â€¢ OneDrive "Known Folder Move" relocates the desktop
+          - OneDrive "Known Folder Move" relocates the desktop
             (C:/Users/x/OneDrive/Desktop) _ very common on Win 10/11;
-          â€¢ the XDG desktop is localized on Linux (~/MasaÃ¼stÃ¼,
-            ~/Schreibtisch, ~/Bureau, â€¦).
+          - the XDG desktop is localized on Linux (~/Masaustu,
+            ~/Schreibtisch, ~/Bureau, etc).
         Falls back to ~/Desktop only as a last resort.
         """
         home = Path.home()
@@ -2188,7 +2474,7 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
-                       # ── 2) Registry: User Shell Folders ─────────────────────────────
+            # ── 2) Registry: User Shell Folders ─────────────────────────────
             try:
                 import winreg
                 with winreg.OpenKey(
@@ -2204,7 +2490,7 @@ class MainWindow(QMainWindow):
                 pass
 
         elif _os == "Linux":
-            # xdg-user-dir honors localized desktop folder names
+            # ── xdg-user-dir ────────────────────────────────────────────────
             try:
                 out = subprocess.run(
                     ["xdg-user-dir", "DESKTOP"],
@@ -2234,8 +2520,8 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
-        # macOS: ~/Desktop is always the real path.
-        # Localization is display-only.
+        # macOS: ~/Desktop is always the real path (localization is
+        # display-only). Everything else lands here as a last resort.
         return home / "Desktop"
 
     def _create_desktop_shortcut(self):
@@ -2319,7 +2605,7 @@ class MainWindow(QMainWindow):
 
             # ── Linux _ .desktop file (Terminal=false, no console) ──────────────────
             else:
-                # Export .ico â†’ .png for better desktop integration
+                # Export .ico -> .png for better desktop integration
                 png_path = ico_path.with_suffix(".png")
                 if not png_path.exists() and ico_path.exists():
                     try:
@@ -2357,6 +2643,8 @@ class MainWindow(QMainWindow):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         cw = self.centralWidget()
+        if getattr(self, "_boot_overlay", None) is not None:
+            self._boot_overlay.setGeometry(cw.rect())
         if self._overlay and self._overlay.isVisible():
             ow, oh = 460, 390
             self._overlay.setGeometry(
@@ -2424,7 +2712,7 @@ class MainWindow(QMainWindow):
         tmp = snap["tmp"]
         if tmp >= 0:
             tmp_pct = min(100, (tmp / 100) * 100)
-            self._bar_tmp.set_value(tmp_pct, f"{tmp:.0f}Â°C")
+            self._bar_tmp.set_value(tmp_pct, f"{tmp:.0f}C")
         else:
             self._bar_tmp.set_value(0, "N/A")
 
@@ -2584,6 +2872,7 @@ class MainWindow(QMainWindow):
             lay.addWidget(lbl)
 
         return w
+
     def _build_right_panel(self) -> QWidget:
         w = QWidget()
         w.setFixedWidth(_RIGHT_W)
@@ -2593,7 +2882,7 @@ class MainWindow(QMainWindow):
         lay.setSpacing(6)
 
         def _sec(txt):
-            l = QLabel(f"▸¸ {txt}")
+            l = QLabel(f"▸ {txt}")
             l.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
             l.setStyleSheet(f"color: {C.TEXT_MED}; background: transparent;")
             return l
@@ -2643,6 +2932,20 @@ class MainWindow(QMainWindow):
         self._interrupt_btn.clicked.connect(self._do_interrupt)
         lay.addWidget(self._interrupt_btn)
 
+        # Pulsing glow — activates while ONXY is speaking, gives the
+        # interrupt button a "live, actionable" heartbeat.
+        self._interrupt_glow = QGraphicsDropShadowEffect(self._interrupt_btn)
+        self._interrupt_glow.setColor(QColor(C.MUTED_C))
+        self._interrupt_glow.setOffset(0, 0)
+        self._interrupt_glow.setBlurRadius(0)
+        self._interrupt_btn.setGraphicsEffect(self._interrupt_glow)
+        self._interrupt_pulse = QPropertyAnimation(self._interrupt_glow, b"blurRadius", self)
+        self._interrupt_pulse.setDuration(700)
+        self._interrupt_pulse.setKeyValueAt(0.0, 4)
+        self._interrupt_pulse.setKeyValueAt(0.5, 26)
+        self._interrupt_pulse.setKeyValueAt(1.0, 4)
+        self._interrupt_pulse.setLoopCount(-1)
+
         self._mute_btn = QPushButton("🎙️  MICROPHONE ACTIVE")
         self._mute_btn.setFixedHeight(30)
         self._mute_btn.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
@@ -2654,7 +2957,7 @@ class MainWindow(QMainWindow):
         return w
 
     def _build_quick_drawer(self) -> QWidget:
-        """Floating overlay panel shown when the ⚙ header button is toggled."""
+        """Floating overlay panel shown when the settings header button is toggled."""
         _BTN_STYLE_PRI = f"""
             QPushButton {{
                 background: #00091a; color: {C.PRI};
@@ -2746,6 +3049,7 @@ class MainWindow(QMainWindow):
     def _toggle_drawer(self, checked: bool):
         if checked:
             self._position_quick_drawer()
+            _animate_overlay_in(self._quick_drawer)
             self._quick_drawer.show()
             self._quick_drawer.raise_()
         else:
@@ -2762,7 +3066,7 @@ class MainWindow(QMainWindow):
     def _build_input_row(self) -> QHBoxLayout:
         row = QHBoxLayout(); row.setSpacing(5)
         self._input = QLineEdit()
-        self._input.setPlaceholderText("Type a command or questionâ€¦")
+        self._input.setPlaceholderText("Type a command or question…")
         self._input.setFont(QFont("Courier New", 9))
         self._input.setFixedHeight(30)
         self._input.setStyleSheet(f"""
@@ -2775,7 +3079,7 @@ class MainWindow(QMainWindow):
         self._input.returnPressed.connect(self._send)
         row.addWidget(self._input)
 
-        send = QPushButton("â–¸")
+        send = QPushButton("▸")
         send.setFixedSize(30, 30)
         send.setFont(QFont("Courier New", 11, QFont.Weight.Bold))
         send.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -2810,7 +3114,7 @@ class MainWindow(QMainWindow):
         lay.setSpacing(5)
 
         # ── header row ───────────────────────────────────────────────────────────
-        hdr = QHBoxLayout(); 
+        hdr = QHBoxLayout()
         hdr.setSpacing(6)
 
         dot = QLabel("◈")
@@ -2958,11 +3262,12 @@ class MainWindow(QMainWindow):
             ow, oh,
         )
         ov.closed.connect(lambda: setattr(self, '_remote_overlay', None))
+        _animate_overlay_in(ov)
         ov.show()
         self._remote_overlay = ov
         self._log.append_log(f"SYS: Remote key generated _ manual: {manual or url}")
 
-   # ── Auto-start ────────────────────────────────────────────────────────────
+    # ── Auto-start ────────────────────────────────────────────────────────────
 
     def _check_autostart(self) -> bool:
         """Returns True if auto-start is currently registered on this OS."""
@@ -3103,7 +3408,7 @@ class MainWindow(QMainWindow):
             self._customize_overlay.hide()
         cw = self.centralWidget()
         ov = CustomizeOverlay(
-            cfg.get("assistant_name", "ONXY"),
+            cfg.get("assistant_name", "ONXY") or "ONXY",
             cfg.get("user_name", ""),
             cfg.get("ui_color", "") or DEFAULT_UI_COLOR,
             parent=cw,
@@ -3117,6 +3422,7 @@ class MainWindow(QMainWindow):
         )
         ov.on_preview = self._preview_ui_color
         ov.saved.connect(self._apply_name_update)
+        _animate_overlay_in(ov)
         ov.show()
         self._customize_overlay = ov
 
@@ -3133,7 +3439,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"{display}  ONXY")
         self._title_lbl.setText(display)
         if display in ("ONXY", "O.N.X.Y"):
-            self._sub_lbl.setText("Built to Think. Engineered to Execute.")
+            self._sub_lbl.setText("Just A Rather Very Intelligent System")
         else:
             self._sub_lbl.setText("Built to Think. Engineered to Execute.")
         self._log._ai_name_lc = self._assistant_name.lower()
@@ -3187,8 +3493,6 @@ class MainWindow(QMainWindow):
         if self.on_text_command:
             threading.Thread(target=self.on_text_command, args=(cmd,), daemon=True).start()
 
-    # ── Clipboard intelligence ────────────────────────────────────────────────
-
     def _do_interrupt(self):
         if self.on_interrupt:
             self.on_interrupt()
@@ -3234,6 +3538,12 @@ class MainWindow(QMainWindow):
     def _apply_state(self, state: str):
         self.hud.state    = state
         self.hud.speaking = (state == "SPEAKING")
+        if self.hud.speaking:
+            if self._interrupt_pulse.state() != QPropertyAnimation.State.Running:
+                self._interrupt_pulse.start()
+        else:
+            self._interrupt_pulse.stop()
+            self._interrupt_glow.setBlurRadius(0)
 
     def _check_config(self) -> bool:
         if not API_FILE.exists(): return False
@@ -3253,6 +3563,7 @@ class MainWindow(QMainWindow):
             ow, oh,
         )
         ov.done.connect(self._on_setup_done)
+        _animate_overlay_in(ov)
         ov.show()
         self._overlay = ov
 
@@ -3267,7 +3578,7 @@ class MainWindow(QMainWindow):
             self._overlay.hide()
             self._overlay = None
         self._apply_state("LISTENING")
-        self._assistant_name = _read_full_config().get("assistant_name", "ONXY")
+        self._assistant_name = _read_full_config().get("assistant_name", "ONXY") or "ONXY"
         self._log.append_log(f"SYS: Initialised. OS={os_name.upper()}. {self._assistant_name} online.")
 
 class _RootShim:
