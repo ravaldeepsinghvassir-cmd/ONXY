@@ -1,0 +1,35 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+.venv/
+.venv-py314/
+venv/
+env/
+
+# Secrets / API keys
+.env
+.env.*
+!.env.example
+config/api_keys.json
+
+# Generated files
+*.wav
+*.mp3
+*.tmp
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Private certificates
+config/certs/*.key
+
+memory/long_term.json
