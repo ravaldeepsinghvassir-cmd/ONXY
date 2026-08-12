@@ -1,101 +1,204 @@
 # ⚙️ ONXY
-### The Ultimate Cross-Platform Personal AI Assistant — By RAVAL
 
+### The Autonomous Personal AI Operating System
 
-A real-time voice AI that can hear, see, understand, and control your computer — on any OS. Supports Windows, macOS, and Linux. Built on the Gemini Live API for native audio streaming, delivering zero subscriptions and total digital autonomy.
+**By Ravaldeep Singh Vassir**
 
----
+> **Hear. See. Think. Act. Remember.**
 
-## ✨ Overview
+ONXY is a cross-platform personal AI assistant designed to become a persistent digital companion and computer-control layer.
 
-ONXY is where the assistant stops being a tool and starts being a presence. It remembers yesterday's conversation, watches the topics you care about, and speaks first when it has something worth saying. The goal of this build was continuity — ONXY should feel like it never fully left, even after you close it.
+It combines real-time voice interaction, visual awareness, persistent memory, computer control, web research, autonomous task execution, proactive intelligence, system monitoring, browser automation, file processing, and remote access into a unified AI system.
 
-It's not just an assistant — it's an extension of your digital life.
+The vision is simple:
 
----
-
-## 🚀 Capabilities
-
-### Core Features
-| Feature | Description |
-|---|---|
-| 🎙️ Real-time Voice | Ultra-low latency conversation in any language via Gemini Live API |
-| 🖥️ System Control | Launch apps, adjust volume/brightness, WiFi, shortcuts, power — all by voice |
-| 🧩 Autonomous Tasks | High-level planning for complex multi-step goals via agent mode |
-| 👁️ Visual Awareness | Real-time screen capture and webcam vision piped into your main Gemini session |
-| 🧠 Persistent Memory | Deeply remembers projects, preferences, and personal context across sessions |
-| ⌨️ Hybrid Input | Seamlessly switch between keyboard typing and voice commands |
-| 🌅 Morning Briefing | On first boot: greets you, reads the time, recaps yesterday, and fetches live news |
-| 🔔 Proactive 2.0 | Time-aware, context-aware check-ins — knows the time of day, your projects, and what you've been discussing |
-| 🗓️ Session Memory | Summarises each conversation and mentions it naturally next morning — consumed after use, never repeats |
-| 👁️‍🗨️ Background Monitoring | User-configured topic watching — checks for new headlines once a day and alerts naturally |
-| 📊 Hardware Monitoring | Continuous CPU, RAM, GPU and temperature telemetry with localized voice alerts |
-| 🌤️ Weather Report | Live weather data for your city, personalized from memory |
-| 🗺️ Dynamic Content Panel | Scrollable display layer beneath the HUD that renders web results, news, and search data |
-| 🔍 Multi-Mode Web Search | `news` / `research` / `price` / `compare` / `search` — Gemini Grounded first, DDG fallback |
-| ⏰ Smart Reminders | OS-native scheduled notifications (Windows Task Scheduler / macOS LaunchAgent / Linux systemd) |
-| ✈️ Flight Finder | Live flight price and availability lookup |
-| 🎮 Game Updater | Checks and triggers game updates on Steam and Epic Games on demand |
-| 📂 File Processor | Read, summarize, and answer questions about local files |
-| 💻 Code Helper | Inline code review, debugging, and generation |
-| 🌐 Browser Control | Open URLs, navigate tabs, and interact with the browser by voice |
-| 📨 Send Message | Compose and send messages through WhatsApp, Telegram, and more |
-| 🎬 YouTube Control | Search, play, and control YouTube playback by voice |
-| 🖱️ Desktop Control | Taskbar, window management, and desktop-level operations |
-| 🧑‍💻 Silent Language Memory | Detects spoken language on first use — all future sessions adapt automatically |
-| 📱 Remote Dashboard | Control the assistant from your phone via QR code pairing |
-| ⚡ Auto-Start on Boot | Registers with the OS startup system (registry / LaunchAgent / .desktop) |
-| 📋 Clipboard Intelligence | Copy any text → floating panel with Translate / Summarise / Explain / Fix |
-| 🎨 Assistant Customization | Change the assistant name and your name from the UI — takes effect immediately |
+> **An AI that doesn't just answer you — it understands your environment, remembers your context, uses your tools, and helps execute real-world tasks.**
 
 ---
 
-## 🆕 What's New in ONXY
+## ✨ What Is ONXY?
 
-### 🗓️ Session Memory — ONXY Remembers Yesterday
-At the end of every session, ONXY generates a 1-2 sentence summary of what was discussed and saves it to memory. The next morning, it's mentioned naturally in the briefing:
-> *"Good morning, sir — it's 09:15. Yesterday you were working on the ONXY background monitoring feature. Fetching today's headlines now."*
+ONXY is an experimental autonomous AI assistant that connects an AI reasoning layer with your operating system and digital environment.
 
-The summary is consumed immediately after use — it never repeats in future briefings and adds zero long-term bloat to memory.
+Instead of functioning like a traditional chatbot, ONXY is designed to:
 
-### 👁️‍🗨️ Background Monitoring — ONXY Watches While You're Away
-Tell ONXY to monitor any topic and it checks for new developments once a day using DuckDuckGo news. When a headline changes, it reports back naturally in your language:
-> *"Efendim, takip ettiğiniz yapay zeka haberlerinde bir gelişme var: Google yeni bir model duyurdu."*
+- 🎙️ Hear you through real-time voice interaction
+- 🧠 Understand natural language and context
+- 👁️ See and analyze your screen
+- 📷 Process camera input
+- 💻 Control applications and system functions
+- 🌐 Search and research the web
+- 📂 Read and process local files
+- 🤖 Execute multi-step tasks
+- 🧠 Remember important context across sessions
+- 📊 Monitor system hardware
+- 🔔 Provide proactive notifications
+- ⏰ Create reminders
+- 🌐 Control browsers
+- 🎬 Control YouTube
+- 📋 Understand clipboard content
+- 📱 Provide remote dashboard access
+- 🛠️ Assist with coding and development
 
-Fully opt-in — ONXY monitors nothing without being explicitly asked. Crypto, financial, and trading topics are blocked at the code level regardless of what is requested. Same headline never triggers twice.
-
-### 🔔 Proactive System 2.0 — Context-Aware, Time-Aware, Non-Repetitive
-The proactive engine was rebuilt from the ground up. Instead of a generic check-in after 15 minutes of silence, ONXY now:
-- Knows the **time of day** — morning tone differs from evening tone
-- Knows your **active projects** from memory and can ask how something is going
-- Knows your **monitored topics** and can bring one up naturally
-- Knows **what you were just talking about** (last 8 conversation turns)
-- **Rotates** between three focus areas so it never opens with the same line twice
-- Has a 20-minute cooldown (up from 10) — less intrusive, more meaningful
-
-### 👁️ Instant Vision Acknowledgment — No More Silent Waiting
-When you ask ONXY to look at your screen or camera, it no longer goes silent while processing. It immediately says something natural ("Looking at your screen now, sir" / "Ekrana bakıyorum efendim") while the capture runs. The actual analysis follows as the next response.
-
-### 📰 Parallel News Search — First Result Wins
-News queries now run Gemini Grounded Search and DuckDuckGo news simultaneously in two threads. Whichever delivers a valid result first is used; the other is silently discarded. A Gemini 503 error no longer delays results — the DDG fallback is already running in parallel.
+The long-term objective is to evolve ONXY from a personal assistant into a **general-purpose autonomous AI employee for the user's digital environment.**
 
 ---
 
-## 🗺️ ONXY Roadmap
+# 🚀 Core Capabilities
 
-| ONXY | Focus |
-|---|---|
-| **XLVIII** | Instant interrupt · parallel news · two-phase briefing · exponential backoff · vision cooldown |
-| **XLIX** | Auto-start · clipboard intelligence · assistant customization |
-| **L** | Session memory · background monitoring · proactive 2.0 · instant vision · parallel news search |
-| **LI+** | Plugin system · email · quiz mode · calorie counter · calendar |
+## 🎙️ Real-Time Voice Intelligence
+
+ONXY supports real-time voice interaction using the Gemini Live API.
+
+Designed for:
+
+- Natural conversations
+- Low-latency interaction
+- Multilingual communication
+- Voice commands
+- Continuous conversational context
+- Hands-free computer interaction
+
+ONXY can adapt its communication language based on the user's interaction.
+
+---
+
+## 🧠 Persistent Memory
+
+ONXY maintains persistent context across sessions.
+
+Memory can contain:
+
+- User identity
+- Preferences
+- Active projects
+- Previous sessions
+- Important conversation context
+- Monitored topics
+- Assistant configuration
+
+The goal is to make ONXY feel continuous instead of starting from zero every time it launches.
+
+### Session Memory
+
+At the end of a session, ONXY can generate a short summary of what was discussed.
+
+The next session can use that context naturally.
+
+Example:
+
+> "Good morning. Yesterday you were working on the ONXY dashboard. Would you like to continue from where you stopped?"
+
+Session summaries are designed to avoid unnecessary long-term memory growth.
+
+---
+
+# 👁️ Visual Intelligence
+
+ONXY can process visual information from the computer environment.
+
+Supported capabilities include:
+
+- Screen capture
+- Webcam input
+- Visual analysis
+- Screenshot interpretation
+- UI understanding
+- Visual troubleshooting
+
+Example:
+
+> "ONXY, look at my screen and tell me why this Python application is showing an error."
+
+The assistant can capture the relevant visual context and use AI vision capabilities to analyze it.
+
+---
+
+# 💻 Computer Control
+
+ONXY can interact with the operating system through dedicated action modules.
+
+Examples include:
+
+- Open applications
+- Close applications
+- Keyboard shortcuts
+- Mouse control
+- Window management
+- Taskbar interaction
+- Volume control
+- Brightness control
+- Wi-Fi control
+- Power operations
+- Desktop operations
+
+OS-specific functionality is isolated where possible to keep the core architecture portable.
+
+---
+
+# 🤖 Autonomous Task Execution
+
+ONXY supports multi-step task execution through an agent-oriented architecture.
+
+Instead of requiring every individual action to be specified, a high-level objective can be provided.
+
+Example:
+
+> "Open my project, inspect the error, find the relevant file and help me fix it."
+
+The system can break a goal into smaller actions and use available tools.
+
+This is one of the primary foundations for future autonomous capabilities.
+
+---
+
+# 🌐 Web Intelligence
+
+ONXY provides multiple web-search modes.
+
+Supported search categories include:
+
+- `search`
+- `news`
+- `research`
+- `price`
+- `compare`
+
+The search architecture can use multiple information sources and fallback mechanisms.
+
+Example:
+
+> "Research the latest developments in AI agents and summarize the important changes."
+
+---
+
+# 📰 Parallel Search Architecture
+
+For selected news operations, ONXY can execute multiple search paths in parallel.
+
+```text
+                    User Query
+                        │
+                        ▼
+                Search Controller
+                   /          \
+                  /            \
+                 ▼              ▼
+        Gemini Grounding     DDG News
+                 │              │
+                 └──────┬───────┘
+                        ▼
+                 First Valid Result
+                        │
+                        ▼
+                       ONXY
 
 ---
 
 ## ⚡ Quick Start
 
 ```bash
-git clone https://github.com/FatihMakes/Mark-L.git
+git clone https://github.com/ravaldeepsinghvassir-cmd/ONXY.git
 cd ONXY
 pip install -r requirements.txt
 python main.py
